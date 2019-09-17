@@ -44,37 +44,42 @@ func (qn *Qiniu) GetUploadEvi(putPolicy UploadParam) string {
 //GetDownloadAddr获取文件下载地址
 //vod加转码参数实现视频流实时转码，目前仅支持hls格式
 
-func (qn *Qiniu) GetDownloadAddr(domain, vod string) string {
+func (qn *Qiniu) GetDownloadAddr(vod string, hlstype bool) string {
 
+	host := qn.Host
+	if hlstype {
+		host = host + "?pm3u8/0" //提取私有空间hls切片
+	}
 	deadline := time.Now().Add(time.Second * 3600).Unix() //1小时有效期
-	return storage.MakePrivateURL(authMac, domain, vod, deadline)
+	return storage.MakePrivateURL(authMac, host, vod, deadline)
 
 }
 
 //增加转码数据
-func (qn *Qiniu) AddTranscode(rawvod, latervod, layout, img string) (string, error) {
+func (qn *Qiniu) AddTranscode(transcode Transcode) (string, error) {
 
-	fopAvthumb := fmt.Sprintf(layout+"%s",
-		storage.EncodedEntry(qn.Bucket, latervod))
-	fopVframe := fmt.Sprintf("vframe/jpg/offset/10|saveas/%s",
-		storage.EncodedEntry(qn.Bucket, img))
+	fopAvthumb := fmt.Sprintf(transcode.VodLayout+"%s",
+		storage.EncodedEntry(qn.Bucket, transcode.VodLater))
+	fopVframe := fmt.Sprintf(transcode.PreviewImgLayout+"%s",
+		storage.EncodedEntry(qn.Bucket, transcode.PreviewImgName))
 	fopBatch := []string{fopAvthumb, fopVframe}
 	fops := strings.Join(fopBatch, ";")
 	force := true
 	notifyURL := qn.TranscodeNotifyUrl //异步通知url
-	return qn.storage().Pfop(qn.Bucket, rawvod, fops, "notify", notifyURL, force)
+	fmt.Println(transcode.VodLater)
+	return qn.storage().Pfop(qn.Bucket, transcode.VodRaw, fops, "notify", notifyURL, force)
 
 }
 
 //查询转码状态
-func (qn *Qiniu) TranscodingStatus(id string) (string, error) {
+//Code: 状态码0成功，1等待处理，2正在处理，3处理失败，4通知提交失败
+func (qn *Qiniu) TranscodingStatus(id string) (*storage.PrefopRet, error) {
 
-	ret, err := qn.storage().Prefop(id)
+	res, err := qn.storage().Prefop(id)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	fmt.Println(ret.String())
-	return ret.String(), nil
+	return &res, nil
 }
 
 //地域信息
@@ -85,47 +90,44 @@ func (qn *Qiniu) storage() *storage.OperationManager {
 	}
 	cfg.Zone = &storage.ZoneHuabei
 	return storage.NewOperationManager(authMac, &cfg)
-
 }
 
 //验证请求是否来自七牛
-func (qn *Qiniu) VerifyCallback(mac *auth.Credentials, req *http.Request) (bool, error) {
-	return mac.VerifyCallback(req)
+func (qn *Qiniu) VerifyCallback(req *http.Request) (bool, error) {
+	return authMac.VerifyCallback(req)
 }
 
 //内容审核
-func (qn *Qiniu) AuditMedia(url string, kind string) {
+func (qn *Qiniu) AuditMedia(url string) ([]byte, error) {
 
 	var param AuditParam
 	param.Data.Uri = url
-	param.Params.Scenes = kind
+	param.Params.Scenes = []string{"pulp", "terror", "politician", "ads"}
 	res, err := json.Marshal(param)
 	if err != nil {
 		panic(err)
 	}
 	data := "POST" + " " + AUDIT_IMG_URL + "\nHost: " + AUDIT_HOST + "\nContent-Type: " + "application/json" + "\n\n" + string(res)
-
 	token := authMac.Sign([]byte(data))
 	client := &http.Client{}
-	reque, err := http.NewRequest("POST", AUDIT_HOST+AUDIT_IMG_URL, strings.NewReader(string(res)))
+	reque, err := http.NewRequest("POST", "http://"+AUDIT_HOST+AUDIT_IMG_URL, strings.NewReader(string(res)))
 	if err != nil {
 		panic(err)
 	}
 	token = "Qiniu " + token
-	fmt.Println(data)
-	reque.Header.Add("Content-Type", "application/json")
-	reque.Header.Add("Authorization", token)
+	reque.Header.Set("Content-Type", "application/json")
+	reque.Header.Set("Authorization", token)
 	response, err := client.Do(reque)
 	if err != nil {
 		panic(err)
 	}
-	response.Body.Close()
-	v, _ := ioutil.ReadAll(response.Body)
-	if err != nil {
-		panic(err)
+	defer response.Body.Close()
+	body, _ := ioutil.ReadAll(response.Body)
+	if err != nil || response.StatusCode != 200 || response.Header.Get("X-Resp-Code") != "200" {
+		return nil, err
 	}
-	fmt.Println(response.Status)
-	fmt.Println(v)
+	return body, nil
+	// fmt.Println(response.Header.Get("X-Resp-Code"))
 	// http.Post(AUDIT_HOST+AUDIT_IMG_URL, "application/json", strings.NewReader(string(res)))
 	// return
 }
