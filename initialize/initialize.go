@@ -98,11 +98,11 @@ func (qn *Qiniu) VerifyCallback(req *http.Request) (bool, error) {
 }
 
 //内容审核
-func (qn *Qiniu) AuditMedia(url string) ([]byte, error) {
+func (qn *Qiniu) AuditMedia(url string, ap []string) (*AuditResponse, error) {
 
 	var param AuditParam
 	param.Data.Uri = url
-	param.Params.Scenes = []string{"pulp", "terror", "politician", "ads"}
+	param.Params.Scenes = ap
 	res, err := json.Marshal(param)
 	if err != nil {
 		panic(err)
@@ -126,7 +126,12 @@ func (qn *Qiniu) AuditMedia(url string) ([]byte, error) {
 	if err != nil || response.StatusCode != 200 || response.Header.Get("X-Resp-Code") != "200" {
 		return nil, err
 	}
-	return body, nil
+	var respBody AuditResponse
+	err = json.Unmarshal(body, &respBody)
+	if err != nil {
+		return nil, err
+	}
+	return &respBody, nil
 	// fmt.Println(response.Header.Get("X-Resp-Code"))
 	// http.Post(AUDIT_HOST+AUDIT_IMG_URL, "application/json", strings.NewReader(string(res)))
 	// return
