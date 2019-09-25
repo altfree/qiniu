@@ -4,8 +4,7 @@ import "github.com/qiniu/api.v7/storage"
 
 const (
 	//图拍审核地址
-	AUDIT_HOST    = "ai.qiniuapi.com"
-	AUDIT_IMG_URL = "/v3/image/censor"
+	AUDIT_IMG_URL = "https://ai.qiniuapi.com/v3/image/censor"
 )
 
 //图片审核请求内容
@@ -23,6 +22,10 @@ type ImgInfo struct {
 	Suggestion string  `json:"suggestion"`
 	Label      string  `json:"label"`
 	Score      float64 `json:"score"`
+	Comments   string  `json:"comments"` //涉及到的广告敏感词
+	Detections []struct {
+		Pts [][]string `json:pts`
+	} `json:"detections,omitempty"` //检测到敏感图片或信息的坐标
 }
 
 //图片审核响应数据

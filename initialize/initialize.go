@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -9,7 +10,9 @@ import (
 	"time"
 
 	"github.com/qiniu/api.v7/auth"
+
 	"github.com/qiniu/api.v7/auth/qbox"
+	"github.com/qiniu/api.v7/conf"
 	"github.com/qiniu/api.v7/storage"
 )
 
@@ -105,26 +108,30 @@ func (qn *Qiniu) AuditMedia(url string, ap []string) (*AuditResponse, error) {
 	param.Params.Scenes = ap
 	res, err := json.Marshal(param)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	data := "POST" + " " + AUDIT_IMG_URL + "\nHost: " + AUDIT_HOST + "\nContent-Type: " + "application/json" + "\n\n" + string(res)
-	token := authMac.Sign([]byte(data))
 	client := &http.Client{}
-	reque, err := http.NewRequest("POST", "http://"+AUDIT_HOST+AUDIT_IMG_URL, strings.NewReader(string(res)))
+	req, err := http.NewRequest(http.MethodPost, AUDIT_IMG_URL, strings.NewReader(string(res)))
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	token = "Qiniu " + token
-	reque.Header.Set("Content-Type", "application/json")
-	reque.Header.Set("Authorization", token)
-	response, err := client.Do(reque)
+	req.Header.Set("Content-Type", conf.CONTENT_TYPE_JSON)
+	err = authMac.AddToken(auth.TokenQiniu, req)
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer response.Body.Close()
 	body, _ := ioutil.ReadAll(response.Body)
-	if err != nil || response.StatusCode != 200 || response.Header.Get("X-Resp-Code") != "200" {
+
+	if err != nil {
 		return nil, err
+	}
+	if response.StatusCode != 200 || response.Header.Get("X-Resp-Code") != "200" {
+		return nil, errors.New("code:" + response.Status + ",response-code:" + response.Header.Get("X-Resp-Code"))
 	}
 	var respBody AuditResponse
 	err = json.Unmarshal(body, &respBody)
@@ -132,7 +139,4 @@ func (qn *Qiniu) AuditMedia(url string, ap []string) (*AuditResponse, error) {
 		return nil, err
 	}
 	return &respBody, nil
-	// fmt.Println(response.Header.Get("X-Resp-Code"))
-	// http.Post(AUDIT_HOST+AUDIT_IMG_URL, "application/json", strings.NewReader(string(res)))
-	// return
 }
